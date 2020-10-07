@@ -21,12 +21,33 @@ class NormalNLLLoss:
     Treating Q(cj | x) as a factored Gaussian.
     """
     def __call__(self, x, mu, var):
-        
         logli = -0.5 * (var.mul(2 * np.pi) + 1e-6).log() - (x - mu).pow(2).div(var.mul(2.0) + 1e-6)
         nll = -(logli.sum(1).mean())
 
         return nll
+    
+class BottleneckLoss:
+    """
+    Calculate the bottleneck loss to minimize mutual information.
+    This should be maximized.
+    """
+    def __call__(self, mu, var, i_c, alpha=1e-8):
+        # add a small value to variance to avoid inf log
+        kl_divergence = 0.5 * torch.sum(mu**2 + var - torch.log(var + alpha) - 1, dim=1)
+        
+        # calculate the botteleneck loss
+        bottleneck_loss = torch.mean(kl_divergence) - i_c
+        
+        return bottleneck_loss
 
+def optimize_beta(beta, bottleneck_loss, alpha=1e-6):
+    """
+    Performs a step for updating the adaptive beta
+    """
+    
+    beta_new = max(0, beta + alpha * bottleneck_loss)
+    return beta_new
+    
 def noise_sample(n_dis_c, dis_c_dim, n_con_c, n_z, batch_size, device):
     """
     Sample random noise vector for training.
@@ -56,7 +77,7 @@ def noise_sample(n_dis_c, dis_c_dim, n_con_c, n_z, batch_size, device):
     if(n_con_c != 0):
         # Random uniform between -1 and 1.
         con_c = torch.rand(batch_size, n_con_c, 1, 1, device=device) * 2 - 1
-
+    
     noise = z
     if(n_dis_c != 0):
         noise = torch.cat((z, dis_c), dim=1)
